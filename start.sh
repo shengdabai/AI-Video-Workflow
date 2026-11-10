@@ -1,7 +1,7 @@
 #!/bin/bash
 # Pixelle-Video 一键启动
 
-PROJECT_DIR="/Users/adam/Desktop/视频自动化/Pixelle-Video"
+PROJECT_DIR="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)" || exit 1
 LOG_DIR="$PROJECT_DIR/.logs"
 mkdir -p "$LOG_DIR"
 
