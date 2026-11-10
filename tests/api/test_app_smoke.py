@@ -47,6 +47,16 @@ def test_cors_preflight(client):
     assert resp.headers["access-control-allow-credentials"] == "true"
 
 
+@pytest.mark.parametrize("origin", ["https://untrusted.example", "null", "http://localhost:3000.evil.example"])
+def test_cors_rejects_untrusted_origins(client, origin):
+    resp = client.options(
+        "/api/orchestrator/tasks",
+        headers={"Origin": origin, "Access-Control-Request-Method": "POST"},
+    )
+    assert resp.status_code == 400
+    assert "access-control-allow-origin" not in resp.headers
+
+
 def test_file_response_serves_output_file(client, tmp_path):
     (tmp_path / "output").mkdir()
     (tmp_path / "output" / "result.json").write_text('{"ok": true}', encoding="utf-8")

@@ -153,7 +153,7 @@ class WindowsPackageBuilder:
         """Find a suitable Python 3.11+ for installing dependencies"""
         candidates = [
             # Try common locations for newer Python versions
-            '/Users/puke/miniforge3/bin/python3',  # User's conda
+            str(Path.home() / 'miniforge3' / 'bin' / 'python3'),  # User's conda
             '/opt/homebrew/bin/python3',           # Homebrew
             '/usr/local/bin/python3',              # Manual install
         ]

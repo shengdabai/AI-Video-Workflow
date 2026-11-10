@@ -29,7 +29,7 @@ async def process_one_cycle(db_path: str | None = None) -> None:
 
     pending = await queue.get_shots_by_status("pending")
     generating = await queue.get_shots_by_status("generating")
-    slots = MAX_CONCURRENT - len(generating)
+    slots = max(0, MAX_CONCURRENT - len(generating))
     for shot in pending[:slots]:
         provider = get_provider(shot.provider)
         try:

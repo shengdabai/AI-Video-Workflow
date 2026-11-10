@@ -119,9 +119,8 @@ async def get_file(file_path: str):
         return FileResponse(
             path=str(abs_path),
             media_type=media_type,
-            headers={
-                "Content-Disposition": f'inline; filename="{abs_path.name}"'
-            }
+            filename=abs_path.name,
+            content_disposition_type="inline",
         )
         
     except HTTPException:

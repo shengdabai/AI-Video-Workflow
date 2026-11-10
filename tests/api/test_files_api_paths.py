@@ -223,3 +223,28 @@ def test_unknown_path_returns_404(app_dir):
     assert resp.status_code == 404
     assert resp.json() == {"detail": "File not found"}
 
+
+@pytest.mark.parametrize("name", ['quote"name.json', "结果.json"])
+def test_file_response_safely_encodes_download_name(app_dir, name):
+    from api.app import app
+
+    (app_dir / "output" / name).write_text('{"ok": true}', encoding="utf-8")
+    with TestClient(app) as client:
+        resp = client.get("/api/files/" + quote(name, safe=""))
+    assert resp.status_code == 200
+    assert resp.json() == {"ok": True}
+    assert resp.headers["content-disposition"] == "inline; filename*=utf-8''" + quote(name)
+    assert "\r" not in resp.headers["content-disposition"]
+    assert "\n" not in resp.headers["content-disposition"]
+
+
+async def test_file_response_encodes_control_characters_in_header(app_dir):
+    from api.routers.files import get_file
+
+    # ASGI routing rejects newlines in paths. Exercise the response builder
+    # directly so a local filename can never introduce raw header newlines.
+    name = "line\r\nbreak.json"
+    (app_dir / "output" / name).write_text("{}", encoding="utf-8")
+    response = await get_file(name)
+    assert response.headers["content-disposition"] == "inline; filename*=utf-8''" + quote(name)
+
