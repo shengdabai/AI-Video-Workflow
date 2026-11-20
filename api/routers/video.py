@@ -22,6 +22,7 @@ from typing import NamedTuple, Optional
 from fastapi import APIRouter, HTTPException, Request
 from loguru import logger
 
+from api.auth import internal_error
 from api.dependencies import PixelleVideoDep
 from api.pathsafe import (
     AUDIO_INPUT_SUFFIXES,
@@ -163,7 +164,10 @@ async def generate_video_sync(
 
         # Auto-determine media_width and media_height from template meta tags (required)
         if inputs.template is None:
-            raise ValueError("frame_template is required to determine media size")
+            raise HTTPException(
+                status_code=500,
+                detail="frame_template is required to determine media size",
+            )
 
         from pixelle_video.services.frame_html import HTMLFrameGenerator
         generator = HTMLFrameGenerator(inputs.template.path)
@@ -222,9 +226,10 @@ async def generate_video_sync(
             file_size=file_size
         )
         
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Sync video generation error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error("Sync video generation error", e) from None
 
 
 @router.post("/generate/async", response_model=VideoGenerateAsyncResponse)
@@ -337,7 +342,8 @@ async def generate_video_async(
             task_id=task.task_id
         )
         
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Async video generation error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error("Async video generation error", e) from None
 

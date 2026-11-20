@@ -3,7 +3,8 @@ set -uo pipefail
 
 echo "[devcontainer] Running postCreate tasks..."
 
-cd /workspaces/Pixelle-Video
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$REPO_ROOT"
 
 # ============================================================================
 # System Dependencies Installation
@@ -45,7 +46,7 @@ fc-list :lang=zh | head -n 10 || true
 
 # Install uv package manager
 echo "[devcontainer] Installing uv package manager..."
-pip install uv --quiet
+pip install "uv==0.11.7" --quiet
 
 # Install Python dependencies with uv
 echo "[devcontainer] Installing Python dependencies with uv..."

@@ -17,6 +17,7 @@ LLM (Large Language Model) endpoints
 from fastapi import APIRouter, HTTPException
 from loguru import logger
 
+from api.auth import internal_error
 from api.dependencies import PixelleVideoDep
 from api.schemas.llm import LLMChatRequest, LLMChatResponse
 
@@ -54,7 +55,8 @@ async def llm_chat(
             tokens_used=None  # Can add token counting if needed
         )
         
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"LLM chat error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error("LLM chat error", e) from None
 

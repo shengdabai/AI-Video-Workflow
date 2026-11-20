@@ -2,7 +2,8 @@
 set -euo pipefail
 
 echo "[devcontainer] postStart: launching Pixelle-Video Web UI in background..."
-cd /workspaces/Pixelle-Video
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$REPO_ROOT"
 
 # Set Streamlit config for headless mode and proper port binding
 export STREAMLIT_SERVER_PORT=8501

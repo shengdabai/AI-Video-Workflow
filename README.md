@@ -44,25 +44,7 @@ This repository turns content work into a repeatable workflow: inputs, processin
 
 ## Quick Start
 
-Use the commands that match the current project state:
-
-```bash
-npm install
-npm run dev
-npm start
-npm run build
-npm run lint
-```
-
-| Command | Purpose |
-|---|---|
-| `npm install` | Install project dependencies. |
-| `npm run dev` | next dev |
-| `npm start` | next start |
-| `npm run build` | next build |
-| `npm run lint` | eslint |
-
-### Python development setup
+### Python services (API & Orchestrator Worker)
 
 The Python services need the `ffmpeg` binary on `PATH`, and so do the API route tests (they start the video service). The Dockerfile and CI install it with apt.
 
@@ -70,12 +52,34 @@ The Python services need the `ffmpeg` binary on `PATH`, and so do the API route 
 # Install ffmpeg first:
 #   macOS:          brew install ffmpeg
 #   Debian/Ubuntu:  sudo apt-get install -y ffmpeg
-uv sync --locked --extra dev   # Python dependencies + pytest, pytest-httpx, ruff
-uv run ruff check .            # lint (CI runs the same check)
-uv run pytest                  # tests
+uv sync --locked --extra dev         # Python dependencies + pytest, pytest-httpx, ruff
+uv run python api/app.py             # API server (binds 127.0.0.1:8000 by default)
+uv run python -m orchestrator.worker # background shot/asset worker
+uv run ruff check .                  # lint (CI runs the same check)
+uv run pytest                        # tests
+```
+
+### Dashboard (`dashboard/`)
+
+Run Next.js dashboard commands inside the `dashboard/` directory:
+
+```bash
+cd dashboard
+npm install
+npm run dev
+npm start
+npm run build
+npm run lint
 ```
 
 Docs: `pip install -r requirements-docs.txt` and then `mkdocs build --strict`.
+
+## Scope & Security Boundaries
+
+- **Caller authentication (`PIXELLE_API_TOKEN`)**: Mutating orchestrator endpoints (`POST /api/orchestrator/tasks*`, shot/video review, and `/publish`) require `Authorization: Bearer $PIXELLE_API_TOKEN` whenever `PIXELLE_API_TOKEN` or `PIXELLE_REQUIRE_AUTH=1` is set, and otherwise only allow loopback clients (`127.0.0.1`, `::1`, `localhost`).
+- **Loopback default binding**: `api/app.py` defaults to `--host 127.0.0.1`. Container deployments (`Dockerfile`) explicitly pass `--host 0.0.0.0` so port exposure remains explicit.
+- **Two-stage review & idempotent publish**: Publishing requires both video-level approval (`POST /review/approve`) and at least one approved shot with a clip asset, and persists an `uploading`/`published` lock in `publish_records` before uploading to YouTube to prevent duplicate uploads on retries.
+- **Single-operator model**: Multi-tenant per-user/workspace isolation on task listings is outside the current single-operator boundary; protect shared or remote deployments behind authenticated reverse proxies or `PIXELLE_API_TOKEN`.
 
 ## Operating Notes
 

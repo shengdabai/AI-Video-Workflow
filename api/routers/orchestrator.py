@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import os
 import re
-from datetime import datetime
+import sqlite3
+from datetime import datetime, timezone
 from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from api.auth import require_write_auth
 from api.pathsafe import BGM_PATH_ERROR, resolve_bgm_file
 from orchestrator.db import get_db, init_db
 from orchestrator.models import Asset, PublishRecord, ShotTask, VideoTask
@@ -85,7 +87,7 @@ class PublishRequest(BaseModel):
     bgm_path: Optional[str] = None
 
 
-@router.post("/tasks", status_code=201)
+@router.post("/tasks", status_code=201, dependencies=[Depends(require_write_auth)])
 async def create_video_task(req: CreateVideoTaskRequest):
     task = VideoTask(
         title=req.title,
@@ -109,7 +111,7 @@ async def get_video_task(task_id: TaskId):
     return task
 
 
-@router.post("/tasks/{task_id}/shots", status_code=201)
+@router.post("/tasks/{task_id}/shots", status_code=201, dependencies=[Depends(require_write_auth)])
 async def create_shots(task_id: TaskId, req: CreateShotsRequest):
     queue = _queue()
     if await queue.get_video_task(task_id) is None:
@@ -132,25 +134,25 @@ async def get_shots(task_id: TaskId):
     return await _queue().get_shots_by_video(task_id)
 
 
-@router.post("/tasks/{task_id}/review/approve")
+@router.post("/tasks/{task_id}/review/approve", dependencies=[Depends(require_write_auth)])
 async def approve_video(task_id: TaskId):
     await _review().approve_video(task_id)
     return {"ok": True}
 
 
-@router.post("/shots/{shot_id}/approve")
+@router.post("/shots/{shot_id}/approve", dependencies=[Depends(require_write_auth)])
 async def approve_shot(shot_id: str):
     await _review().approve_shot(shot_id)
     return {"ok": True}
 
 
-@router.post("/shots/{shot_id}/reject")
+@router.post("/shots/{shot_id}/reject", dependencies=[Depends(require_write_auth)])
 async def reject_shot(shot_id: str, req: RejectShotRequest):
     await _review().reject_shot(shot_id, new_prompt=req.new_prompt)
     return {"ok": True}
 
 
-@router.post("/tasks/{task_id}/publish")
+@router.post("/tasks/{task_id}/publish", dependencies=[Depends(require_write_auth)])
 async def publish_task(task_id: TaskId, req: PublishRequest):
     from orchestrator.assets.manager import AssetManager
     from orchestrator.publish.composer import compose_video
@@ -164,6 +166,34 @@ async def publish_task(task_id: TaskId, req: PublishRequest):
             raise HTTPException(status_code=400, detail=BGM_PATH_ERROR)
 
     queue = _queue()
+    task = await queue.get_video_task(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail=_TASK_NOT_FOUND)
+
+    async with get_db() as conn:
+        cur = await conn.execute(
+            "SELECT id, platform_video_id, url, status FROM publish_records WHERE video_task_id=? AND platform=?",
+            (task_id, "youtube"),
+        )
+        existing = await cur.fetchone()
+    if existing is not None:
+        if existing["status"] == "published" and existing["platform_video_id"]:
+            return {
+                "youtube_url": existing["url"],
+                "video_id": existing["platform_video_id"],
+                "idempotent": True,
+            }
+        raise HTTPException(
+            status_code=409,
+            detail="Publish already in progress or unconfirmed; verify YouTube before retrying",
+        )
+
+    if task.status != "approved":
+        raise HTTPException(
+            status_code=400,
+            detail="Video task must be approved before publishing",
+        )
+
     shots = await queue.get_shots_by_video(task_id)
     approved = sorted(
         [s for s in shots if s.status == "approved"],
@@ -184,12 +214,52 @@ async def publish_task(task_id: TaskId, req: PublishRequest):
             )
         clip_paths.append(clips[-1].file_path)
 
-    output_path = f"output/exports/{task_id}/final.mp4"
-    await compose_video(
-        clip_paths=clip_paths,
-        output_path=output_path,
-        bgm_path=str(bgm_file) if bgm_file else None,
+    record = PublishRecord(
+        video_task_id=task_id,
+        platform="youtube",
+        status="uploading",
     )
+    async with get_db() as conn:
+        try:
+            await conn.execute(
+                """INSERT INTO publish_records
+                   (id, video_task_id, platform, platform_video_id, url, status, published_at)
+                   VALUES (?,?,?,?,?,?,?)""",
+                (record.id, record.video_task_id, record.platform, None, None, "uploading", None),
+            )
+            await conn.commit()
+        except sqlite3.IntegrityError:
+            cur = await conn.execute(
+                "SELECT platform_video_id, url, status FROM publish_records WHERE video_task_id=? AND platform=?",
+                (task_id, "youtube"),
+            )
+            race_row = await cur.fetchone()
+            if race_row is not None and race_row["status"] == "published" and race_row["platform_video_id"]:
+                return {
+                    "youtube_url": race_row["url"],
+                    "video_id": race_row["platform_video_id"],
+                    "idempotent": True,
+                }
+            raise HTTPException(
+                status_code=409,
+                detail="Publish already in progress or unconfirmed; verify YouTube before retrying",
+            ) from None
+
+    output_path = f"output/exports/{task_id}/final.mp4"
+    try:
+        await compose_video(
+            clip_paths=clip_paths,
+            output_path=output_path,
+            bgm_path=str(bgm_file) if bgm_file else None,
+        )
+    except Exception:
+        async with get_db() as conn:
+            await conn.execute(
+                "DELETE FROM publish_records WHERE id=? AND status='uploading'",
+                (record.id,),
+            )
+            await conn.commit()
+        raise
 
     export_asset = Asset(task_id=task_id, type="export", file_path=output_path)
     await asset_mgr.register(export_asset)
@@ -202,22 +272,15 @@ async def publish_task(task_id: TaskId, req: PublishRequest):
     )
     video_id = await upload_to_youtube(output_path, meta)
 
-    record = PublishRecord(
-        video_task_id=task_id,
-        platform="youtube",
-        platform_video_id=video_id,
-        url=f"https://www.youtube.com/watch?v={video_id}",
-        status="published",
-        published_at=datetime.utcnow().isoformat(),
-    )
+    url = f"https://www.youtube.com/watch?v={video_id}"
+    published_at = datetime.now(timezone.utc).isoformat()
     async with get_db() as conn:
         await conn.execute(
-            """INSERT INTO publish_records
-               (id, video_task_id, platform, platform_video_id, url, status, published_at)
-               VALUES (?,?,?,?,?,?,?)""",
-            (record.id, record.video_task_id, record.platform,
-             record.platform_video_id, record.url, record.status, record.published_at),
+            """UPDATE publish_records
+               SET platform_video_id=?, url=?, status=?, published_at=?
+               WHERE id=?""",
+            (video_id, url, "published", published_at, record.id),
         )
         await conn.commit()
     await queue.update_video_task(task_id, status="published")
-    return {"youtube_url": record.url, "video_id": video_id}
+    return {"youtube_url": url, "video_id": video_id}
