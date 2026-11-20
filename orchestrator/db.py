@@ -77,5 +77,7 @@ async def init_db(path: str | None = None) -> None:
                 published_at TEXT,
                 FOREIGN KEY (video_task_id) REFERENCES video_tasks(id)
             );
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_publish_records_task_platform
+                ON publish_records(video_task_id, platform);
         """)
         await conn.commit()

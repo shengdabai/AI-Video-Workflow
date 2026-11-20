@@ -130,6 +130,8 @@ async def _create_task_with_approved_clip() -> str:
     assert status == 201
     status, _ = await _send_as_is("POST", f"/api/orchestrator/shots/{shots[0]['id']}/approve")
     assert status == 200
+    status, _ = await _send_as_is("POST", f"/api/orchestrator/tasks/{task['id']}/review/approve")
+    assert status == 200
     await AssetManager().register(
         Asset(
             task_id=task["id"],

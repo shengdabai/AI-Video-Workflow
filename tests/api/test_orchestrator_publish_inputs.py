@@ -98,6 +98,7 @@ async def client(app_dir, ffmpeg_calls, uploads):
             )
         ).json()
         assert (await c.post(f"/api/orchestrator/shots/{shots[0]['id']}/approve")).status_code == 200
+        assert (await c.post(f"/api/orchestrator/tasks/{task['id']}/review/approve")).status_code == 200
         await AssetManager().register(
             Asset(
                 task_id=task["id"],

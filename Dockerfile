@@ -27,13 +27,12 @@ RUN apt-get update && apt-get install -y \
     fonts-noto-cjk \
     && rm -rf /var/lib/apt/lists/*
 
-# Install uv package manager
-# For China: use pip to install uv from mirror (faster and more stable)
-# For International: use official installer script
+# Install uv package manager (pinned version)
+ARG UV_VERSION=0.11.7
 RUN if [ "$USE_CN_MIRROR" = "true" ]; then \
-        pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple/ uv; \
+        pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple/ "uv==${UV_VERSION}"; \
     else \
-        curl -LsSf https://astral.sh/uv/install.sh | sh; \
+        pip install --no-cache-dir "uv==${UV_VERSION}"; \
     fi
 ENV PATH="/root/.local/bin:$PATH"
 RUN uv --version
@@ -83,5 +82,5 @@ RUN mkdir -p /app/output /app/data /app/temp
 EXPOSE 8000 8501
 
 # Default command (can be overridden in docker-compose)
-CMD ["uv", "run", "python", "api/app.py"]
+CMD ["uv", "run", "python", "api/app.py", "--host", "0.0.0.0"]
 
